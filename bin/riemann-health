@@ -87,10 +87,10 @@ class Riemann::Tools::Health
     end.size
   end
 
-  def report_pct(service, fraction, report)
+  def report_pct(service, index = nil, fraction, report)
     if fraction
       if fraction > @limits[service][:critical]
-        alert service, :critical, fraction, "#{sprintf("%.2f", fraction * 100)}% #{report}"
+        alert i ? "#{service}-#{index}" : service, :critical, fraction, "#{sprintf("%.2f", fraction * 100)}% #{report}"
       elsif fraction > @limits[service][:warning]
         alert service, :warning, fraction, "#{sprintf("%.2f", fraction * 100)}% #{report}"
       else
@@ -100,24 +100,27 @@ class Riemann::Tools::Health
   end
 
   def linux_cpu
-    new = File.read('/proc/stat')
-    unless new[/cpu\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)/]
-      alert 'cpu', :unknown, nil, "/proc/stat doesn't include a CPU line"
-      return false
-    end
-    u2, n2, s2, i2 = [$1, $2, $3, $4].map { |e| e.to_i }
+    File.open('/proc/stat', 'r') do |file|
+      file.each_line do |line|
 
-    if @old_cpu
-      u1, n1, s1, i1 = @old_cpu
+        unless line[/cpu(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)/]
+          alert 'cpu', :unknown, nil, "/proc/stat doesn't include a CPU line"
+          return false
+        end
+        index, u2, n2, s2, i2 = [$1, $2, $3, $4, $5].map { |e| e.to_i }
 
-      used = (u2+n2+s2) - (u1+n1+s1)
-      total = used + i2-i1
-      fraction = used.to_f / total
+        if @old_cpu[index]
+          u1, n1, s1, i1 = @old_cpu[index]
 
-      report_pct :cpu, fraction, "user+nice+sytem\n\n#{`ps -eo pcpu,pid,comm | sort -nrb -k1 | head -10`.chomp}"
-    end
+          used = (u2+n2+s2) - (u1+n1+s1)
+          total = used + i2-i1
+          fraction = used.to_f / total
 
-    @old_cpu = [u2, n2, s2, i2]
+          report_pct :cpu, index, fraction, "user+nice+sytem\n\n#{`ps -eo pcpu,pid,comm | sort -nrb -k1 | head -10`.chomp}"
+        end
+
+        @old_cpu[index] = [u2, n2, s2, i2]
+      end
   end
 
   def linux_load
