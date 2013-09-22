@@ -90,11 +90,11 @@ class Riemann::Tools::Health
   def report_pct(service, index = nil, fraction, report)
     if fraction
       if fraction > @limits[service][:critical]
-        alert i ? "#{service}-#{index}" : service, :critical, fraction, "#{sprintf("%.2f", fraction * 100)}% #{report}"
+        alert index ? "#{service}-#{index}" : service, :critical, fraction, "#{sprintf("%.2f", fraction * 100)}% #{report}"
       elsif fraction > @limits[service][:warning]
-        alert service, :warning, fraction, "#{sprintf("%.2f", fraction * 100)}% #{report}"
+        alert index ? "#{service}-#{index}" : service, :warning, fraction, "#{sprintf("%.2f", fraction * 100)}% #{report}"
       else
-        alert service, :ok, fraction, "#{sprintf("%.2f", fraction * 100)}% #{report}"
+        alert index ? "#{service}-#{index}" : service, :ok, fraction, "#{sprintf("%.2f", fraction * 100)}% #{report}"
       end
     end
   end
@@ -102,25 +102,32 @@ class Riemann::Tools::Health
   def linux_cpu
     File.open('/proc/stat', 'r') do |file|
       file.each_line do |line|
-
-        unless line[/cpu(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)/]
-          alert 'cpu', :unknown, nil, "/proc/stat doesn't include a CPU line"
-          return false
+        unless line =~ /cpu(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)/
+          next
         end
-        index, u2, n2, s2, i2 = [$1, $2, $3, $4, $5].map { |e| e.to_i }
+        puts "match " + line
+        index = $1.to_s
+        u2, n2, s2, i2 = [$2, $3, $4, $5].map { |e| e.to_i }
+        puts "index cpu: " + "#{index}"
+        if @old_cpu
+          if @old_cpu.key?(index)
+            u1, n1, s1, i1 = @old_cpu[index]
 
-        if @old_cpu[index]
-          u1, n1, s1, i1 = @old_cpu[index]
+            used = (u2+n2+s2) - (u1+n1+s1)
+            total = used + i2-i1
+            fraction = used.to_f / total
+            puts "u1: #{u1} n1: #{n1} s1: #{s1} i1: #{i1}"
+            puts "u2: #{u2} n2: #{n2} s2: #{s2} i2: #{i2}"
+            puts "total: #{total}"
+            puts "fraction: #{fraction}"
 
-          used = (u2+n2+s2) - (u1+n1+s1)
-          total = used + i2-i1
-          fraction = used.to_f / total
-
-          report_pct :cpu, index, fraction, "user+nice+sytem\n\n#{`ps -eo pcpu,pid,comm | sort -nrb -k1 | head -10`.chomp}"
+            report_pct :cpu, index, fraction, "user+nice+sytem\n\n#{`ps -eo pcpu,pid,comm | sort -nrb -k1 | head -10`.chomp}"
+          end
         end
 
-        @old_cpu[index] = [u2, n2, s2, i2]
+        @old_cpu = Hash[ index,  [u2, n2, s2, i2]]
       end
+    end
   end
 
   def linux_load
